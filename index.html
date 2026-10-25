@@ -645,8 +645,8 @@ function cellInfo(c){
   return {n: c.n || a.n || '', d: c.d || '', t: c.t || a.t || '', i: a.i, c: a.c, i2: a.i2 || '', c2: a.c2 || a.c, r: !!a.r, s: spanOf(c), a: c.a};
 }
 function memoText(m, w){
-  m = m || {}; const v = (m.verses || {})[w];
-  return {wird: m.wird || '', line: v ? (m.poem ? m.poem + ': ' : '') + (m.unit || 'البيتان') + ' (' + v + ')' : '', reps: m.reps ? repsText(m.reps) : ''};
+  m = m || {}; const v = (m.verses || {})[w], free = v && !/^[0-9٠-٩]/.test(v);
+  return {wird: m.wird || '', line: v ? (m.poem ? m.poem + ': ' : '') + (free ? v : (m.unit || 'البيتان') + ' (' + v + ')') : '', reps: m.reps ? repsText(m.reps) : ''};
 }
 function viewItems(row, N){ return normRow(row, N).filter(Boolean).map(cellInfo).filter(x => prefs.routine || !x.r); }
 /* Topic suggestions for an activity: its series first, then texts already used anywhere. */
@@ -1513,6 +1513,7 @@ function renderSettings(){
 function setProgramHTML(){
   const P = state.program, L = P.logos;
   return '<div class="fld"><label for="s-title">اسم البرنامج</label><input id="s-title" class="inp" data-bind="program.title" value="' + esc(P.title) + '"></div>' +
+    '<div class="fld"><label for="s-platform">رابط منصة نوابغ</label><input id="s-platform" class="inp" dir="ltr" data-bind="program.platformUrl" value="' + esc(P.platformUrl || '') + '" placeholder="https://"><span class="help">إذا وُضع، يُقرأ «محفوظ الأسبوع» لكل مرحلة من المحفوظات اليومية في المنصة كلما فُتح الجدول، ويحل محل ما كُتب هنا لتلك المرحلة.</span></div>' +
     '<div class="fld"><label for="s-tag">العبارة التعريفية</label><textarea id="s-tag" class="inp" rows="2" data-bind="program.tagline">' + esc(P.tagline) + '</textarea></div>' +
     '<div class="g2">' +
       '<div class="fld"><label for="s-start">تاريخ في الأسبوع الأول</label><input id="s-start" type="date" class="inp" data-bind="program.startDate" value="' + esc(P.startDate) + '"><span class="help">يبدأ كل أسبوع يوم الأحد، والأسبوع الذي يقع فيه هذا التاريخ هو «الأسبوع الأول».</span></div>' +
@@ -2016,9 +2017,43 @@ async function exportAllPNG(k){
   if(done === list.length) toast('اكتملت صور ' + weekName(k) + ' لكل المراحل.');
 }
 
+/* ================= platform ================= */
+/* Once the platform's address is set it owns memorisation: a stage it has a plan for takes each
+   day's portion from it, and a day it has none for is left empty. */
+async function pullPlatformMemo(){
+  const base = String(state.program.platformUrl || '').trim().replace(/\/+$/, '');
+  if(!base) return;
+  const days = state.program.days, last = Math.max(1, ...state.stages.map(s => s.weeks.length)) - 1;
+  let res = null;
+  try {
+    const r = await fetch(base + '/api/v1/schedule/memorization?from=' + iso(dateOf(0, days[0])) + '&to=' + iso(dateOf(last, days[days.length - 1])), {headers: {Accept: 'application/json'}});
+    res = r.ok ? await r.json() : null;
+  } catch(e){ res = null; }
+  if(!res || !Array.isArray(res.stages)){ if(ui.canEdit) toast('تعذّر الوصول إلى منصة نوابغ، فيظهر المحفوظ المكتوب في الجدول.'); return; }
+  const wasClean = !dirty();
+  res.stages.forEach(ps => {
+    // shortcut: stages are matched by name, so renaming one on either side unlinks it until both match again
+    const st = state.stages.find(s => s.name === ps.name), tracks = ps.tracks || [];
+    const track = tracks.find(t => t.kind === 'ode' && t.portions.length) || tracks.find(t => t.portions.length);
+    if(!st || !track) return;
+    st.weeks.forEach(wk => { wk.memo = wk.memo || {}; wk.memo.verses = {}; wk.memo.reps = ''; });
+    track.portions.forEach(p => {
+      const d = parseISO(p.date), wk = st.weeks[locate(d)];
+      if(!wk) return;
+      const m = wk.memo, parts = String(p.content).match(/^(\D+?)\s+([0-9٠-٩].*)$/), reps = String(p.note || '').match(/[0-9٠-٩]+/);
+      m.poem = track.title;
+      if(parts){ m.unit = parts[1]; m.verses[d.getDay()] = parts[2]; } else m.verses[d.getDay()] = String(p.content);
+      if(reps) m.reps = reps[0];
+    });
+  });
+  if(wasClean) savedJSON = JSON.stringify(state);
+  render();
+}
+
 /* ================= start ================= */
 if(DEV) checkDraft();
 render();
+pullPlatformMemo();
 (function connect(){
   const cl = window.claude;
   if(!cl || typeof cl.use !== 'function') return;
