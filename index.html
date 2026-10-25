@@ -1,6 +1,7 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>تقويم نوابغ المستقبل</title>
 <meta name="description" content="جدول برنامج نوابغ المستقبل لأولياء الأمور: عرض يومي وأسبوعي وشهري لكل مرحلة، مع أداة تعديل ونشر للمدرسة.">
+<meta name="robots" content="noindex, nofollow">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&family=Tajawal:wght@400;500;700&display=swap">
 <style id="css">
 :root{
@@ -515,7 +516,8 @@ let undoStack = [], redoStack = [];
 const hashTok = String(location.hash || '').replace(/^#/, '').split('.').filter(Boolean);
 /* Outside Claude the page is a file kept on the editor's computer: opened from disk (or with #edit) it can be edited, and saving downloads a new copy. */
 const DEV = !window.claude && (location.protocol === 'file:' || hashTok.indexOf('edit') !== -1 || hashTok.indexOf('preview') !== -1);
-const FILE_NAME = () => 'جدول ' + state.program.title + '.html';
+const ON_DISK = location.protocol === 'file:';
+const FILE_NAME = () => ON_DISK ? 'جدول ' + state.program.title + '.html' : 'index.html';
 const ui = {
   stage: null, view: null, week: 0, date: today(), month: null,
   layout: store.get('layout') || (window.innerWidth < 760 ? 'cards' : 'poster'),
@@ -1409,10 +1411,15 @@ function openShare(){
     '<div class="body">' +
     '<div class="box"><h4>١. ' + (ui.artifact ? 'انشر' : 'احفظ') + ' آخر تعديلاتك</h4>' + pub + '</div>' +
     '<div class="box"><h4>٢. الأسابيع المخفية (مسودات)</h4>' + drafts + '</div>' +
-    (!window.claude ? '<div class="box"><h4>٣. احفظ الملف</h4><ol class="steps">' +
+    (!window.claude && ON_DISK ? '<div class="box"><h4>٣. احفظ الملف</h4><ol class="steps">' +
       '<li>«حفظ الملف» ينزّل نسخة جديدة من هذا الملف في مجلد التنزيلات.</li>' +
       '<li>في المرة القادمة افتح أحدث نسخة، أو ضعها مكان القديمة.</li>' +
       '<li>أولياء الأمور لا يرون الملف؛ تصلهم الصور التي تصدّرها من الخطوة التالية.</li></ol></div>' :
+    !window.claude ? '<div class="box"><h4>٣. ارفع الملف للمستودع</h4><ol class="steps">' +
+      '<li>«حفظ الملف» ينزّل ملف index.html على جهازك.</li>' +
+      '<li>افتح المستودع في قت هب، واختر «Add file» ثم «Upload files»، واسحب الملف إليه، ثم اضغط «Commit changes».</li>' +
+      '<li>خلال دقيقة يتحدث الموقع على الرابط نفسه.</li></ol>' +
+      '<p class="help">أولياء الأمور لا يُعطون رابط الموقع؛ تصلهم الصور التي تصدّرها من الخطوة التالية.</p></div>' :
     '<div class="box"><h4>٣. أرسل رابط الجدول</h4><ol class="steps">' +
       '<li>اضغط زر المشاركة (Share) أعلى هذه الصفحة.</li>' +
       '<li>اختر أن يفتحها «أي شخص لديه الرابط»، ثم انسخ الرابط.</li>' +
@@ -1899,7 +1906,7 @@ function execOp(o){
 function buildHTML(){
   const css = document.getElementById('css').textContent, app = document.getElementById('app').textContent;
   const json = JSON.stringify(state).replace(/</g, '\\u003c');
-  return SHELL + '\n<title>' + esc('تقويم ' + state.program.title) + '</title>\n<meta name="description" content="' + esc('جدول برنامج ' + state.program.title + ' لأولياء الأمور: عرض يومي وأسبوعي وشهري لكل مرحلة، مع أداة تعديل ونشر للمدرسة.') + '">\n' + FONTS +
+  return SHELL + '\n<title>' + esc('تقويم ' + state.program.title) + '</title>\n<meta name="description" content="' + esc('جدول برنامج ' + state.program.title + ' لأولياء الأمور: عرض يومي وأسبوعي وشهري لكل مرحلة، مع أداة تعديل ونشر للمدرسة.') + '">\n<meta name="robots" content="noindex, nofollow">\n' + FONTS +
     '\n<style id="css">' + css + '</style>\n\n<div id="root"></div>\n<div id="modal"></div>\n<script type="application/json" id="data">' + json + '<\/script>\n<script id="app">' + app + '<\/script>\n\n</body></html>';
 }
 async function publish(){
@@ -1911,7 +1918,7 @@ async function publish(){
     store.set('draft', JSON.stringify({pub: state.savedAt, state}));
     browserSave(FILE_NAME(), new Blob([buildHTML()], {type: 'text/html;charset=utf-8'}));
     savedJSON = JSON.stringify(state); render();
-    toast('نزلت نسخة جديدة من الملف في التنزيلات. افتحها هي في المرة القادمة.');
+    toast(ON_DISK ? 'نزلت نسخة جديدة من الملف في التنزيلات. افتحها هي في المرة القادمة.' : 'نزل ملف index.html. ارفعه في المستودع مكان القديم، ويتحدث الموقع خلال دقيقة.');
     return;
   }
   ui.saving = true; render();
