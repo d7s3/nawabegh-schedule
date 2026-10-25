@@ -513,8 +513,9 @@ let savedJSON = JSON.stringify(state);
 let undoStack = [], redoStack = [];
 
 const hashTok = String(location.hash || '').replace(/^#/, '').split('.').filter(Boolean);
-/* Outside Claude (the GitHub Pages copy) #edit opens the editor, and saving downloads index.html to upload to the repository. */
-const DEV = !window.claude && (hashTok.indexOf('edit') !== -1 || hashTok.indexOf('preview') !== -1);
+/* Outside Claude the page is a file kept on the editor's computer: opened from disk (or with #edit) it can be edited, and saving downloads a new copy. */
+const DEV = !window.claude && (location.protocol === 'file:' || hashTok.indexOf('edit') !== -1 || hashTok.indexOf('preview') !== -1);
+const FILE_NAME = () => 'جدول ' + state.program.title + '.html';
 const ui = {
   stage: null, view: null, week: 0, date: today(), month: null,
   layout: store.get('layout') || (window.innerWidth < 760 ? 'cards' : 'poster'),
@@ -681,7 +682,7 @@ function mutate(fn){ pushUndo(); fn(); afterChange(); }
 function afterChange(){ if(!state.stages.some(s => s.id === ui.stage)) ui.stage = state.stages[0].id; saveDraftSoon(); render(); }
 function checkDraft(){
   const d = safeJSON(store.get('draft')); if(!d){ store.del('draft'); return; }
-  if(d.pub && d.pub === state.savedAt){ store.del('draft'); setTimeout(() => toast('تم نشر الجدول، وأصبح ظاهراً لأولياء الأمور.'), 300); return; }
+  if(d.pub && d.pub === state.savedAt){ store.del('draft'); if(window.claude) setTimeout(() => toast('تم نشر الجدول، وأصبح ظاهراً لأولياء الأمور.'), 300); return; }
   const strip = o => JSON.stringify(Object.assign({}, o, {savedAt:''}));
   if(!d.state || strip(d.state) === strip(state)){ store.del('draft'); return; }
   ui.draft = d;
@@ -718,7 +719,7 @@ function editBarHTML(){
     '<button type="button" class="btn sm" data-act="share">' + U('share') + 'مشاركة مع أولياء الأمور</button>' +
     '<button type="button" class="btn sm" data-act="settings">' + U('cog') + 'الإعدادات</button>' +
     '<button type="button" class="btn sm" data-act="exit-edit">إنهاء التعديل</button>' +
-    '<button type="button" class="btn sm pri" data-act="publish"' + (d && !ui.saving ? '' : ' disabled') + '>' + U('check') + (ui.saving ? 'جارٍ النشر…' : ui.artifact ? 'حفظ ونشر' : 'حفظ للرفع') + '</button>' +
+    '<button type="button" class="btn sm pri" data-act="publish"' + (d && !ui.saving ? '' : ' disabled') + '>' + U('check') + (ui.saving ? 'جارٍ النشر…' : ui.artifact ? 'حفظ ونشر' : 'حفظ الملف') + '</button>' +
     '</div></div>';
 }
 function noticeHTML(){
@@ -1397,8 +1398,8 @@ function hiddenWeeks(){ const out = []; state.stages.forEach(st => st.weeks.forE
 function openShare(){
   const k = ui.week, hid = hiddenWeeks(), ready = state.stages.filter(st => st.weeks[k] && !st.weeks[k].hidden), saved = new Date(state.savedAt || '');
   const pub = dirty()
-    ? '<div class="banner off">' + U('info') + '<span>لديك تعديلات لم تُنشر بعد، ولن يراها أولياء الأمور حتى تنشرها.</span></div><div><button type="button" class="btn pri" data-pub' + (ui.saving ? ' disabled' : '') + '>' + U('check') + (ui.artifact ? 'حفظ ونشر الآن' : 'حفظ الملف للرفع') + '</button></div>'
-    : !ui.artifact ? '<div class="banner ev">' + U('check') + '<span>لا تعديلات جديدة منذ آخر حفظ. إن رفعت آخر ملف حفظته، فهو ما يراه أولياء الأمور.</span></div>'
+    ? '<div class="banner off">' + U('info') + '<span>' + (ui.artifact ? 'لديك تعديلات لم تُنشر بعد، ولن يراها أولياء الأمور حتى تنشرها.' : 'لديك تعديلات لم تحفظها في الملف بعد.') + '</span></div><div><button type="button" class="btn pri" data-pub' + (ui.saving ? ' disabled' : '') + '>' + U('check') + (ui.artifact ? 'حفظ ونشر الآن' : 'حفظ الملف') + '</button></div>'
+    : !ui.artifact ? '<div class="banner ev">' + U('check') + '<span>لا تعديلات جديدة منذ آخر حفظ.</span></div>'
     : '<div class="banner ev">' + U('check') + '<span>كل تعديلاتك منشورة' + (isNaN(saved) ? '' : ' (آخر نشر ' + fmt(saved, 'dmy') + ')') + '، وما تراه خارج وضع التعديل هو ما يراه أولياء الأمور.</span></div>';
   const drafts = hid.length
     ? state.stages.map(st => { const ks = hid.filter(x => x.st === st).map(x => weekTitle(st, x.k)); return ks.length ? '<p class="help"><b>' + esc(st.name) + ':</b> ' + esc(ks.join('، ')) + '</p>' : ''; }).join('') +
@@ -1406,13 +1407,12 @@ function openShare(){
     : '<p class="help">لا توجد أسابيع مخفية؛ كل الأسابيع ظاهرة لأولياء الأمور.</p>';
   openModal(head(U('share') + 'مشاركة الجدول مع أولياء الأمور') +
     '<div class="body">' +
-    '<div class="box"><h4>١. انشر آخر تعديلاتك</h4>' + pub + '</div>' +
+    '<div class="box"><h4>١. ' + (ui.artifact ? 'انشر' : 'احفظ') + ' آخر تعديلاتك</h4>' + pub + '</div>' +
     '<div class="box"><h4>٢. الأسابيع المخفية (مسودات)</h4>' + drafts + '</div>' +
-    (!window.claude ? '<div class="box"><h4>٣. ارفع الملف للمستودع</h4><ol class="steps">' +
-      '<li>«حفظ الملف للرفع» ينزّل ملف index.html على جهازك.</li>' +
-      '<li>افتح المستودع في قت هب، واختر «Add file» ثم «Upload files»، واسحب الملف إليه، ثم اضغط «Commit changes».</li>' +
-      '<li>خلال دقيقة يتحدث الموقع لأولياء الأمور على الرابط نفسه.</li></ol>' +
-      '<p class="help">رابط التعديل هو رابط الموقع وفي آخره ‎#edit. أي أحد يستطيع تجربة التعديل على جهازه، لكن الموقع لا يتغير إلا برفع الملف بحساب له صلاحية على المستودع.</p></div>' :
+    (!window.claude ? '<div class="box"><h4>٣. احفظ الملف</h4><ol class="steps">' +
+      '<li>«حفظ الملف» ينزّل نسخة جديدة من هذا الملف في مجلد التنزيلات.</li>' +
+      '<li>في المرة القادمة افتح أحدث نسخة، أو ضعها مكان القديمة.</li>' +
+      '<li>أولياء الأمور لا يرون الملف؛ تصلهم الصور التي تصدّرها من الخطوة التالية.</li></ol></div>' :
     '<div class="box"><h4>٣. أرسل رابط الجدول</h4><ol class="steps">' +
       '<li>اضغط زر المشاركة (Share) أعلى هذه الصفحة.</li>' +
       '<li>اختر أن يفتحها «أي شخص لديه الرابط»، ثم انسخ الرابط.</li>' +
@@ -1909,9 +1909,9 @@ async function publish(){
     clearTimeout(draftTimer); // a pending autosave would drop this copy as "not dirty"
     state.savedAt = new Date().toISOString();
     store.set('draft', JSON.stringify({pub: state.savedAt, state}));
-    browserSave('index.html', new Blob([buildHTML()], {type: 'text/html;charset=utf-8'}));
+    browserSave(FILE_NAME(), new Blob([buildHTML()], {type: 'text/html;charset=utf-8'}));
     savedJSON = JSON.stringify(state); render();
-    toast('نزل ملف index.html. ارفعه في المستودع مكان القديم، ويتحدث الموقع خلال دقيقة.');
+    toast('نزلت نسخة جديدة من الملف في التنزيلات. افتحها هي في المرة القادمة.');
     return;
   }
   ui.saving = true; render();
